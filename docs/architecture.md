@@ -1,37 +1,51 @@
-# ProofLedger Verifier — Architecture
+# ProofLedger Verifier Architecture
 
 ## Overview
 
+The Verifier is an off-chain indexer that mirrors ProofLedger on-chain data into a queryable SQLite database.
+
+## Components
+
 ```
-verify.proofleger.vercel.app
-├── / (Registry)          → fetches contract events from Hiro API
-├── /verify               → client-side SHA-256 + Stacks wallet tx
-└── /proof/[hash]         → server-rendered proof detail + verification status
+┌─────────────────────────────────────────────┐
+│              Stacks Blockchain               │
+│  proofleger3 · credentials · achievements   │
+└──────────────────┬──────────────────────────┘
+                   │ poll every 15min
+                   ▼
+┌─────────────────────────────────────────────┐
+│            ProofLedger Verifier             │
+│                                             │
+│  src/indexer.js   — paginated TX fetch      │
+│  src/parser.js    — extract proof data      │
+│  src/verifier.js  — on-chain verification   │
+│  src/database.js  — SQLite write/read       │
+│  src/api.js       — REST HTTP server        │
+│  src/alerts.js    — unusual activity        │
+│  src/scheduler.js — sync timing             │
+│  src/export.js    — CSV/JSON export         │
+└──────────────────┬──────────────────────────┘
+                   │
+          ┌────────┴────────┐
+          ▼                 ▼
+      proofs.db         REST API
+    (SQLite)         :3001/stats
+                     :3001/proof
+                     :3001/wallet
 ```
 
 ## Data Flow
 
-### Registry Page
-1. Server fetches events from `proofleger3` contract via Hiro API
-2. Events parsed into ProofRecord objects
-3. Rendered as static table, revalidated every 30s
+1. Scheduler triggers sync every 15 minutes
+2. Indexer fetches new transactions page by page
+3. Parser extracts hash, title, docType from function args
+4. Verifier confirms hash exists on-chain via read-only call
+5. Database stores with verified=1 flag
+6. API exposes data for external consumers
 
-### Verify Flow
-1. User drops file → browser computes SHA-256 locally (never uploaded)
-2. User connects Leather/Xverse wallet
-3. Frontend calls `openContractCall` → `verify-proof(hash)`
-4. Contract charges 0.001 STX, logs verification on-chain
-5. Transaction confirmed in next Stacks block (~10 min)
+## Design Principles
 
-### Proof Detail
-1. Hash from URL params
-2. Server checks `get-verification` read-only call
-3. If verified: shows green badge + verifier info
-4. If not: shows VerifyButton for user to verify
-
-## Key Files
-- `src/lib/stacks.ts` — contract constants and API helpers
-- `src/lib/verify-client.ts` — read-only contract queries
-- `src/lib/hash-utils.ts` — client-side SHA-256 utilities
-- `src/components/VerifyButton.tsx` — wallet connect + contract call
-- `src/app/verify/page.tsx` — verify page with drag-and-drop
+- **Non-custodial**: No private keys, read-only indexing
+- **Resilient**: If down, on-chain data is unaffected
+- **Incremental**: Syncs from last known offset
+- **Rate-aware**: Respects Hiro API limits (429 handling)

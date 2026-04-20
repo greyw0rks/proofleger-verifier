@@ -1,34 +1,36 @@
 # Changelog
 
-## [1.1.0] - 2026-04-19
+## [1.2.0] - 2026-04-21
 
 ### Added
 
-**New Modules:**
-- `src/indexer.js` — paginated blockchain sync with cursor tracking
-- `src/verifier.js` — on-chain hash verification via REST API
-- `src/parser.js` — structured transaction data extraction
-- `src/database.js` — SQLite schema, queries, and prepared statements
-- `src/api.js` — REST HTTP endpoints (stats, proof, wallet, recent, search)
-- `src/alerts.js` — unusual activity detection and logging
-- `src/export.js` — CSV and JSON export
-- `src/scheduler.js` — configurable sync schedule with retry
+**Celo Chain Support:**
+- `src/celo-indexer.js` — CeloScan API polling for new transactions
+- `src/celo-database.js` — SQLite schema for Celo proofs
+- `src/multi-chain-sync.js` — parallel Stacks + Celo sync orchestration
+
+**API v2:**
+- `src/api-v2.js` — extended HTTP endpoints
+- `GET /v2/stats` — combined Stacks + Celo stats
+- `GET /v2/celo/recent` — latest Celo proofs
+- `GET /v2/celo/wallet` — Celo proofs by address
+- `GET /v2/wallet` — both chains for any address
 
 **CLI Improvements:**
-- `search` command — full-text search by title, hash, address
-- `top` command — top wallets by anchor count
-- `export` command — export to JSON or CSV
+- `node src/query.js celo stats` — Celo database stats
+- `node src/query.js celo recent` — latest Celo txs
+- `node src/query.js celo wallet <addr>` — Celo wallet proofs
+- `node src/query.js report <addr>` — full multi-chain wallet report
+
+**Infrastructure:**
+- `src/health-monitor.js` — periodic health checks with staleness alerts
+- `src/wallet-report.js` — per-wallet JSON report generation
 
 **Docs:**
-- api.md — REST API reference
-- deployment.md — PM2 and tmux setup
-- architecture.md — system design diagram
+- celo-indexer.md, health-monitoring.md
 
-### Changed
-- Modular architecture replacing monolithic index.js
-- Better rate limit handling (429 backoff)
-- Separate verify delay per hash to avoid bursts
+## [1.1.0] - 2026-04-19
+- Modular refactor, REST API, export module
 
 ## [1.0.0] - 2026-04-05
-- Initial release: blockchain watcher with SQLite storage
-- Basic query CLI (stats, proof, wallet, recent)
+- Initial release

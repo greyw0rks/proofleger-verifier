@@ -1,33 +1,30 @@
 # Changelog
 
-## [1.2.0] - 2026-04-21
+## [1.3.0] - 2026-04-22
 
 ### Added
 
-**Celo Chain Support:**
-- `src/celo-indexer.js` — CeloScan API polling for new transactions
-- `src/celo-database.js` — SQLite schema for Celo proofs
-- `src/multi-chain-sync.js` — parallel Stacks + Celo sync orchestration
+**New Modules:**
+- `src/stats-reporter.js` — periodic markdown stats summary generation
+- `src/search.js` — full-text search across Stacks and Celo records
+- `src/dedup.js` — detect and remove duplicate txid entries
+- `src/cleanup.js` — VACUUM, prune old records, report DB size
+- `src/config.js` — centralized config with env var support
 
-**API v2:**
-- `src/api-v2.js` — extended HTTP endpoints
-- `GET /v2/stats` — combined Stacks + Celo stats
-- `GET /v2/celo/recent` — latest Celo proofs
-- `GET /v2/celo/wallet` — Celo proofs by address
-- `GET /v2/wallet` — both chains for any address
-
-**CLI Improvements:**
-- `node src/query.js celo stats` — Celo database stats
-- `node src/query.js celo recent` — latest Celo txs
-- `node src/query.js celo wallet <addr>` — Celo wallet proofs
-- `node src/query.js report <addr>` — full multi-chain wallet report
-
-**Infrastructure:**
-- `src/health-monitor.js` — periodic health checks with staleness alerts
-- `src/wallet-report.js` — per-wallet JSON report generation
+**Updated Modules:**
+- `src/index.js` — full wiring of all modules, `--once` and `--no-api` flags
 
 **Docs:**
-- celo-indexer.md, health-monitoring.md
+- configuration.md — complete env var reference
+- query-reference.md — full CLI command guide
+
+### Changed
+- Stats report now written to `stats-report.md` on every sync
+- Daily summary logged after each sync cycle
+- Duplicate removal runs automatically after each sync
+
+## [1.2.0] - 2026-04-21
+- Celo indexer, multi-chain sync, API v2, health monitor
 
 ## [1.1.0] - 2026-04-19
 - Modular refactor, REST API, export module

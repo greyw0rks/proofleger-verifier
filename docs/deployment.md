@@ -1,51 +1,77 @@
-# ProofLedger Verifier Deployment
+# ProofLedger Verifier — Deployment Guide
 
-## Server Setup (AWS Ubuntu)
+## Prerequisites
+
+- Ubuntu 24 on AWS EC2 (t3.small or larger)
+- Node.js 20+ and npm
+- tmux for persistent sessions
+
+## Initial Setup
 
 ```bash
-cd ~/proofleger-verifier
+git clone https://github.com/greyw0rks/proofleger-verifier.git
+cd proofleger-verifier
 npm install
 ```
 
-## Start with PM2
+## Environment
 
-```bash
-npm install -g pm2
-pm2 start src/index.js --name proofleger-verifier
-pm2 save
-pm2 startup  # auto-start on reboot
+Create `.env` in the project root:
+
+```
+STACKS_CONTRACT=SP1SY1E599GN04XRD2DQBKV7E62HYBJR2CT9S5QKK
+STACKS_API=https://api.hiro.so
+CELO_RPC=https://feth.celo.org
+PORT=3001
 ```
 
-## Or with tmux
+## Start the Verifier
 
 ```bash
-tmux new-session -d -s proofleger-verifier \
-  "cd ~/proofleger-verifier && node src/index.js"
-tmux attach -t proofleger-verifier
+tmux new-session -s verifier
+node src/indexer.js
+# Ctrl+B D to detach
 ```
 
-## Monitor
+## API Server
 
 ```bash
-pm2 logs proofleger-verifier
-pm2 status
-tail -f ~/proofleger-verifier/verifier.log
+tmux new-session -s api
+node src/api-v2.js
 ```
 
-## Query the Database
+## Scheduled Jobs
+
+The scheduler (`src/scheduler.js`) runs:
+- Stacks indexer sync: every 10 minutes
+- Celo indexer sync: every 2 minutes
+- Stats aggregation: every hour
+- Batch verification: 2pm, 5pm, 9pm daily
+
+## Useful Commands
 
 ```bash
+# Live stats
 node src/query.js stats
-node src/query.js recent 20
-node src/query.js search "diploma"
-node src/query.js top 10
-node src/query.js export json
+
+# Leaderboard
+node src/query.js leaderboard 10
+
+# Timeline (last 14 days)
+node src/query.js timeline 14
+
+# Anomaly scan
+node src/query.js anomalies
+
+# Rate limiter stats
+node -e "import(\"./src/rate-limiter.js\").then(m => console.log(m.rateLimiter.stats()))"
 ```
 
-## API Access
+## Log Files
 
-```bash
-curl http://localhost:3001/stats
-curl "http://localhost:3001/proof?hash=a1b2c3"
-curl "http://localhost:3001/wallet?address=SP1SY1..."
-```
+| File | Contents |
+|---|---|
+| `verifier.log` | Indexer and verification events |
+| `anomalies.log` | Flagged unusual activity |
+| `webhooks.log` | Webhook dispatch results |
+| `aggregator.log` | Hourly stats aggregation |

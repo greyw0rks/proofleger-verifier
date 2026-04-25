@@ -1,52 +1,91 @@
 /**
  * ProofLedger Verifier Search
- * Flexible search across Stacks and Celo proof records
+ * Full-text search across proofs by hash fragment, title, or sender
  */
-export function search(db, query, options = {}) {
-  const { limit = 20, network = "all", category } = options;
-  const q = `%${query.trim()}%`;
-  const results = [];
 
-  if (network === "all" || network === "stacks") {
-    let sql = "SELECT *, stacks as network FROM proofs WHERE (title LIKE ? OR hash LIKE ? OR sender LIKE ? OR txid LIKE ?)";
-    const params = [q, q, q, q];
-    if (category) { sql += " AND category = ?"; params.push(category); }
-    sql += " ORDER BY block_height DESC LIMIT ?";
-    params.push(limit);
-    results.push(...db.prepare(sql).all(...params));
+export function searchProofs(db, query, options = {}) {
+  const {
+    limit   = 20,
+    offset  = 0,
+    category = null,
+    chain   = "stacks", // "stacks" | "celo" | "all"
+  } = options;
+
+  if (!query || query.trim().length < 2) return { results: [], total: 0 };
+
+  const term = `%${query.trim()}%`;
+  const results = [];
+  let total = 0;
+
+  if (chain !== "celo") {
+    const catClause = category ? `AND category = ` : "";
+    const rows = db.prepare(`
+      SELECT *, stacks as chain
+      FROM proofs
+      WHERE (hash LIKE ? OR title LIKE ? OR sender LIKE ?)
+        ${catClause}
+      ORDER BY block_height DESC
+      LIMIT ? OFFSET ?
+    `).all(term, term, term, limit, offset);
+
+    const countRow = db.prepare(`
+      SELECT COUNT(*) as c FROM proofs
+      WHERE (hash LIKE ? OR title LIKE ? OR sender LIKE ?)
+        ${catClause}
+    `).get(term, term, term);
+
+    results.push(...rows);
+    total += countRow.c;
   }
 
-  if (network === "all" || network === "celo") {
+  if (chain !== "stacks") {
     try {
-      let sql = "SELECT *, celo as network FROM celo_proofs WHERE (from_address LIKE ? OR txid LIKE ?)";
-      const params = [q, q];
-      sql += " ORDER BY block_number DESC LIMIT ?";
-      params.push(limit);
-      results.push(...db.prepare(sql).all(...params));
+      const celoRows = db.prepare(`
+        SELECT *, celo as chain
+        FROM celo_proofs
+        WHERE (hash LIKE ? OR from_address LIKE ? OR tx_hash LIKE ?)
+        ORDER BY block_number DESC
+        LIMIT ? OFFSET ?
+      `).all(term, term, term, limit, offset);
+
+      const celoCount = db.prepare(`
+        SELECT COUNT(*) as c FROM celo_proofs
+        WHERE (hash LIKE ? OR from_address LIKE ? OR tx_hash LIKE ?)
+      `).get(term, term, term);
+
+      results.push(...celoRows);
+      total += celoCount.c;
     } catch {}
   }
 
-  return results
-    .sort((a, b) => (b.block_height || b.block_number || 0) - (a.block_height || a.block_number || 0))
-    .slice(0, limit);
+  return {
+    results: results.slice(0, limit),
+    total,
+    query,
+    chain,
+  };
 }
 
-export function searchByWallet(db, address) {
-  const stacks = db.prepare("SELECT *, stacks as network FROM proofs WHERE sender = ? ORDER BY block_height DESC LIMIT 100").all(address);
+export function getRecentByAddress(db, address, limit = 50) {
+  const stacks = db.prepare(`
+    SELECT *, stacks as chain FROM proofs
+    WHERE sender = ?
+    ORDER BY block_height DESC LIMIT ?
+  `).all(address, limit);
+
   let celo = [];
-  try { celo = db.prepare("SELECT *, celo as network FROM celo_proofs WHERE from_address = ? ORDER BY block_number DESC LIMIT 100").all(address); }
-  catch {}
-  return { stacks, celo, total: stacks.length + celo.length };
-}
+  try {
+    celo = db.prepare(`
+      SELECT *, celo as chain FROM celo_proofs
+      WHERE from_address = ?
+      ORDER BY block_number DESC LIMIT ?
+    `).all(address, limit);
+  } catch {}
 
-export function getTopWallets(db, limit = 10) {
-  return db.prepare(`
-    SELECT sender as address, COUNT(*) as anchor_count,
-           SUM(CASE WHEN category = "attest" THEN 1 ELSE 0 END) as attest_count
-    FROM proofs
-    WHERE category IN ("anchor","attest")
-    GROUP BY sender
-    ORDER BY anchor_count DESC
-    LIMIT ?
-  `).all(limit);
+  return {
+    address,
+    stacks,
+    celo,
+    total: stacks.length + celo.length,
+  };
 }

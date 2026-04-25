@@ -1,56 +1,54 @@
 /**
- * ProofLedger Verifier Health Monitor
- * Checks sync state, DB size, and API responsiveness
+ * ProofLedger Verifier Health Monitor — v1.2
+ * Comprehensive service health with per-table record counts
  */
 import { appendFileSync } from "fs";
+import { existsSync } from "fs";
 
-const LOG_FILE  = "./health.log";
-const CHECK_MS  = 5 * 60 * 1000; // every 5 minutes
-const STALE_MIN = 30;             // alert if sync is > 30 min stale
+const HEALTH_LOG = "./health.log";
 
-function log(msg, level = "INFO") {
-  const line = `[${new Date().toISOString()}] [${level}] ${msg}`;
+function log(msg) {
+  const line = `[${new Date().toISOString()}] [HEALTH] ${msg}`;
   console.log(line);
-  try { appendFileSync(LOG_FILE, line + "\n"); } catch {}
+  try { appendFileSync(HEALTH_LOG, line + "\n"); } catch {}
 }
 
-export async function runHealthCheck(db) {
-  const results = { timestamp: new Date().toISOString(), checks: {} };
-
-  // DB integrity
+function tableCount(db, table) {
   try {
-    const stacksCount = db.prepare("SELECT COUNT(*) as c FROM proofs").get().c;
-    const celoCount   = db.prepare("SELECT COUNT(*) as c FROM celo_proofs").get().c || 0;
-    results.checks.database = { ok: true, stacks: stacksCount, celo: celoCount };
-    log(`DB check OK — Stacks: ${stacksCount}, Celo: ${celoCount}`);
-  } catch(e) {
-    results.checks.database = { ok: false, error: e.message };
-    log(`DB check FAILED: ${e.message}`, "ERROR");
-  }
-
-  // Sync staleness
-  try {
-    const stacksSync = db.prepare("SELECT last_synced FROM sync_state LIMIT 1").get();
-    const celoSync   = db.prepare("SELECT last_synced FROM celo_sync_state WHERE id = 1").get();
-
-    for (const [name, state] of [["stacks", stacksSync], ["celo", celoSync]]) {
-      if (!state?.last_synced) { results.checks[`${name}_sync`] = { ok: false, reason: "never synced" }; continue; }
-      const ageMin = (Date.now() - new Date(state.last_synced).getTime()) / 60000;
-      const ok = ageMin < STALE_MIN;
-      results.checks[`${name}_sync`] = { ok, ageMinutes: Math.round(ageMin) };
-      if (!ok) log(`${name} sync stale: ${Math.round(ageMin)}m`, "WARN");
-    }
-  } catch(e) {
-    results.checks.sync = { ok: false, error: e.message };
-  }
-
-  const allOk = Object.values(results.checks).every(c => c.ok);
-  results.overall = allOk ? "healthy" : "degraded";
-  return results;
+    return db.prepare(`SELECT COUNT(*) as c FROM ${table}`).get().c;
+  } catch { return -1; }
 }
 
-export function startHealthMonitor(db) {
+export function runHealthCheck(db) {
+  const tables = [
+    "proofs", "celo_proofs", "stats",
+    "issuers", "batch_submissions", "nft_certs",
+    "webhooks", "stats_snapshots",
+  ];
+
+  const counts = {};
+  for (const t of tables) { counts[t] = tableCount(db, t); }
+
+  const dbFile  = "./proofs.db";
+  const dbOk    = existsSync(dbFile);
+  const allOk   = Object.values(counts).every(c => c >= 0);
+
+  const result = {
+    status:    allOk && dbOk ? "ok" : "degraded",
+    dbExists:  dbOk,
+    tables:    counts,
+    timestamp: new Date().toISOString(),
+  };
+
+  const statusLine = `status=${result.status} proofs=${counts.proofs} celo=${counts.celo_proofs} issuers=${counts.issuers} nfts=${counts.nft_certs}`;
+  log(statusLine);
+
+  return result;
+}
+
+export function startHealthMonitor(db, intervalMs = 300_000) {
   log("Health monitor started");
   runHealthCheck(db);
-  return setInterval(() => runHealthCheck(db), CHECK_MS);
+  const id = setInterval(() => runHealthCheck(db), intervalMs);
+  return () => clearInterval(id);
 }

@@ -1,27 +1,28 @@
 # Changelog
 
-## [1.5.0] - 2026-04-25
+## [1.6.0] - 2026-04-26
 
 ### Added
 
 **New Modules:**
-- `src/cache.js` — in-memory LRU cache for proof lookups and stats (500-entry, configurable TTL)
-- `src/rate-limiter.js` — per-IP sliding window rate limiting (60 req/min default)
-- `src/webhook.js` — HTTP webhook dispatcher with retry tracking and failure backoff
-- `src/stats-aggregator.js` — hourly stats rollup with persistent snapshot table
-- `src/search.js` — full-text search across hashes, titles, addresses on both chains
-- `src/middleware.js` — composable CORS, rate-limit, and cache-header middleware
+- `src/issuer-indexer.js` — sync `issuer-registry` contract events to local SQLite
+- `src/batch-indexer.js` — expand `proof-batch` submissions into individual DB rows
+- `src/nft-indexer.js` — track `proof-nft` mints and transfers per-token
 
-**Docs:**
-- deployment.md — complete AWS Ubuntu production setup guide
+**Updated:**
+- `src/health-monitor.js` v1.2 — adds issuer, batch, and NFT table health checks
+- `src/query.js` v1.4 — new CLI commands: `issuers`, `nfts`, `batch`
 
-### Improved
-- API v2 now uses `proofCache` and `statsCache` for hot-path endpoints
-- Rate limit headers (`X-RateLimit-Remaining`, `X-RateLimit-Reset`) on all responses
-- Stats aggregation persists hourly snapshots to `stats_snapshots` table
+**New DB Tables:**
+- `issuers` — on-chain issuer registrations
+- `batch_submissions` — expanded batch proof entries
+- `nft_certs` — NFT certificate ownership and transfer history
+
+## [1.5.0] - 2026-04-25
+- cache, rate limiter, webhooks, stats aggregator, search, middleware
 
 ## [1.4.0] - 2026-04-23
-- batch verifier, leaderboard, timeline, anomaly detector, API v2 endpoints
+- batch verifier, leaderboard, timeline, anomaly detector
 
 ## [1.3.0] - 2026-04-22
 - stats reporter, search, dedup, cleanup, config

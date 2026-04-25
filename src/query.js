@@ -1,59 +1,75 @@
 /**
  * ProofLedger Verifier Query CLI — v1.4
- * Commands: stats|proof|wallet|recent|search|top|export|celo|report|leaderboard|timeline|anomalies|revocations|achievements
+ * Commands: stats | proof | wallet | recent | search | top | export | celo
+ *           report | leaderboard | timeline | anomalies | issuers | nfts | batch
  */
 import Database from "better-sqlite3";
 import { exportJSON, exportCSV } from "./export.js";
 import { getCeloStats } from "./celo-database.js";
-import { saveWalletReport } from "./wallet-report.js";
+import { generateWalletReport, saveWalletReport } from "./wallet-report.js";
 import { buildLeaderboard, getTopDocTypes } from "./leaderboard.js";
 import { getDailyActivity } from "./timeline.js";
 import { runAnomalyChecks } from "./anomaly-detector.js";
+import { getIssuers } from "./issuer-indexer.js";
+import { getNFTsByOwner, getNFTStats } from "./nft-indexer.js";
+import { getBatchStats, getBatchById } from "./batch-indexer.js";
 
 const DB_FILE = "./proofs.db";
 let db;
 try { db = new Database(DB_FILE, { readonly: true }); }
-catch { console.error("Database not found."); process.exit(1); }
+catch { console.error("Database not found. Start the verifier first."); process.exit(1); }
 
 const [,, cmd, sub, ...rest] = process.argv;
 
 switch(cmd) {
   case "stats": {
-    const s     = db.prepare("SELECT * FROM stats WHERE id = 1").get();
+    const s = db.prepare("SELECT * FROM stats WHERE id = 1").get();
     const total = db.prepare("SELECT COUNT(*) as c FROM proofs").get().c;
     const unverified = db.prepare("SELECT COUNT(*) as c FROM proofs WHERE verified = 0 AND category = anchor").get().c;
-    const revoked    = db.prepare("SELECT COUNT(*) as c FROM proofs WHERE verified = 2").get().c;
     let celoTotal = 0;
     try { celoTotal = db.prepare("SELECT COUNT(*) as c FROM celo_proofs").get().c; } catch {}
+    let nftTotal = 0; try { nftTotal = db.prepare("SELECT COUNT(*) as c FROM nft_certs").get().c; } catch {}
+    let issuerTotal = 0; try { issuerTotal = db.prepare("SELECT COUNT(*) as c FROM issuers").get().c; } catch {}
     console.log("\nProofLedger Verifier Stats");
-    console.log("=".repeat(42));
-    console.log(`Stacks total:      ${total}`);
-    console.log(`Celo total:        ${celoTotal}`);
-    console.log(`Combined:          ${total + celoTotal}`);
-    console.log(`Anchors:           ${s?.total_anchors || 0}`);
-    console.log(`Attestations:      ${s?.total_attests || 0}`);
-    console.log(`Verified on-chain: ${s?.total_verified || 0}`);
-    console.log(`Revoked:           ${revoked}`);
+    console.log("=".repeat(40));
+    console.log(`Stacks records:    ${total}`);
+    console.log(`Celo records:      ${celoTotal}`);
+    console.log(`NFT certs:         ${nftTotal}`);
+    console.log(`Issuers:           ${issuerTotal}`);
+    console.log(`Anchors:           ${s?.total_anchors||0}`);
+    console.log(`Attestations:      ${s?.total_attests||0}`);
+    console.log(`Verified:          ${s?.total_verified||0}`);
+    console.log(`Unique wallets:    ${s?.total_senders||0}`);
     console.log(`Unverified queue:  ${unverified}`);
-    console.log(`Unique wallets:    ${s?.total_senders || 0}`);
     break;
   }
-  case "revocations": {
-    const rows = db.prepare("SELECT * FROM proofs WHERE verified = 2").all();
-    console.log(`\nRevoked proofs: ${rows.length}`);
-    rows.forEach(r => console.log(`  ${r.sender?.slice(0,12)}... hash:${r.hash?.slice(0,16)} block:${r.block_height}`));
+  case "issuers": {
+    const verified = sub === "--verified";
+    const issuers  = getIssuers(db, { verifiedOnly: verified, limit: 20 });
+    console.log(`\nIssuers${verified ? " (verified)" : ""}: ${issuers.length}`);
+    issuers.forEach(i => console.log(`  ${i.verified ? "✓" : "○"} ${i.name || i.address.slice(0,12)+"..."} [${i.issuer_type || "?"}]`));
     break;
   }
-  case "achievements": {
-    const address = sub;
-    let rows = [];
-    try {
-      rows = address
-        ? db.prepare("SELECT * FROM earned_achievements WHERE address = ?").all(address)
-        : db.prepare("SELECT * FROM earned_achievements ORDER BY earned_at DESC LIMIT 30").all();
-    } catch { console.log("Achievements table not found — run sync first."); break; }
-    console.log(`\nAchievements${address ? ` for ${address.slice(0,14)}...` : " (all)"}: ${rows.length}`);
-    rows.forEach(r => console.log(`  ${r.achievement.padEnd(20)} ${r.address?.slice(0,14)}... ${r.earned_at?.slice(0,10)}`));
+  case "nfts": {
+    if (sub) {
+      const certs = getNFTsByOwner(db, sub);
+      console.log(`\nNFT certs for ${sub}: ${certs.length}`);
+      certs.forEach(c => console.log(`  #${c.token_id} "${c.title || "—"}" [${c.doc_type || "?"}] block:${c.minted_at}`));
+    } else {
+      const stats = getNFTStats(db);
+      console.log(`\nNFT Stats: ${stats.total} certs · ${stats.holders} holders · ${stats.transfers} transfers`);
+    }
+    break;
+  }
+  case "batch": {
+    if (sub) {
+      const entries = getBatchById(db, parseInt(sub));
+      console.log(`\nBatch #${sub}: ${entries.length} entries`);
+      entries.forEach(e => console.log(`  [${e.index_}] "${e.title || "—"}" ${e.hash?.slice(0,16)}...`));
+    } else {
+      const stats = getBatchStats(db);
+      console.log(`\nBatch Stats: ${stats.totalBatches} batches · ${stats.totalEntries} entries`);
+    }
     break;
   }
   case "leaderboard": {
@@ -69,36 +85,42 @@ switch(cmd) {
   }
   case "timeline": {
     const days = parseInt(sub) || 14;
-    getDailyActivity(db, days).forEach(d =>
-      console.log(`  ${d.date}  A:${d.anchors} T:${d.attests} wallets:${d.unique_wallets}`)
-    );
+    const data  = getDailyActivity(db, days);
+    console.log(`\nDaily activity (last ${days} days):`);
+    data.forEach(d => console.log(`  ${d.date}  A:${d.anchors} T:${d.attests} N:${d.mints} wallets:${d.unique_wallets}`));
     break;
   }
   case "anomalies": {
     const dbRw = new Database(DB_FILE);
-    const r = runAnomalyChecks(dbRw);
-    console.log(`\nBursts: ${r.bursts} · Duplicate titles: ${r.duplicateTitles} · New high-volume: ${r.newHighVolume}`);
+    const result = runAnomalyChecks(dbRw);
+    console.log(`\nAnomaly scan complete:`);
+    console.log(`  Burst senders:       ${result.bursts}`);
+    console.log(`  Duplicate titles:    ${result.duplicateTitles}`);
+    console.log(`  New high-volume:     ${result.newHighVolume}`);
     break;
   }
   case "proof": {
-    const p = sub ? db.prepare("SELECT * FROM proofs WHERE hash LIKE ?").get(`%${sub}%`) : null;
-    if (!p) { console.log("Not found:", sub); break; }
+    const hash = sub;
+    if (!hash) { console.error("Usage: node src/query.js proof <hash>"); break; }
+    const p = db.prepare("SELECT * FROM proofs WHERE hash LIKE ?").get(`%${hash}%`);
+    if (!p) { console.log("Not found:", hash); break; }
     Object.entries(p).forEach(([k,v]) => v != null && console.log(`  ${k.padEnd(14)} ${v}`));
     break;
   }
   case "wallet": {
-    if (!sub) { console.error("Usage: node src/query.js wallet <address>"); break; }
-    const rows = db.prepare("SELECT * FROM proofs WHERE sender = ? ORDER BY block_height DESC").all(sub);
-    console.log(`\nProofs for ${sub}: ${rows.length}`);
+    const address = sub;
+    if (!address) { console.error("Usage: node src/query.js wallet <address>"); break; }
+    const rows = db.prepare("SELECT * FROM proofs WHERE sender = ? ORDER BY block_height DESC").all(address);
+    console.log(`\nProofs for ${address}: ${rows.length}`);
     rows.slice(0,20).forEach(p =>
-      console.log(`  ${p.verified===2?"🚫":p.verified?"✓":"✗"} [${p.category}] ${(p.title||p.hash?.slice(0,16)||"—").slice(0,30)} block:${p.block_height}`)
+      console.log(`  ${p.verified?"✓":"✗"} [${p.category}] ${(p.title||p.hash?.slice(0,16)||"—").slice(0,30)} block:${p.block_height}`)
     );
     break;
   }
   case "recent": {
     const limit = parseInt(sub) || 20;
-    db.prepare("SELECT * FROM proofs ORDER BY block_height DESC LIMIT ?").all(limit)
-      .forEach(p => console.log(`  ${p.verified===2?"🚫":p.verified?"✓":"✗"} [${p.category}] ${p.sender?.slice(0,10)}... block:${p.block_height}`));
+    const rows = db.prepare("SELECT * FROM proofs ORDER BY block_height DESC LIMIT ?").all(limit);
+    rows.forEach(p => console.log(`  ${p.verified?"✓":"✗"} [${p.category}] ${p.sender?.slice(0,10)}... block:${p.block_height}`));
     break;
   }
   case "search": {
@@ -111,8 +133,8 @@ switch(cmd) {
   }
   case "top": {
     const limit = parseInt(sub) || 10;
-    db.prepare(`SELECT sender, COUNT(*) as cnt FROM proofs WHERE category="anchor" GROUP BY sender ORDER BY cnt DESC LIMIT ?`)
-      .all(limit).forEach((r,i) => console.log(`  #${i+1} ${r.sender?.slice(0,14)}... ${r.cnt} anchors`));
+    const rows = db.prepare(`SELECT sender, COUNT(*) as count FROM proofs WHERE category="anchor" GROUP BY sender ORDER BY count DESC LIMIT ?`).all(limit);
+    rows.forEach((r,i) => console.log(`  #${i+1} ${r.sender?.slice(0,12)}...  ${r.count} anchors`));
     break;
   }
   case "export": {
@@ -123,33 +145,22 @@ switch(cmd) {
   }
   case "celo": {
     switch(sub) {
-      case "stats": {
-        let s; try { s = getCeloStats(db); } catch { console.log("No Celo data yet."); break; }
-        console.log(`Celo: ${s.total} txs · ${s.wallets} wallets`); break;
-      }
-      case "recent": {
-        let rows = [];
-        try { rows = db.prepare("SELECT * FROM celo_proofs ORDER BY block_number DESC LIMIT ?").all(parseInt(rest[0])||10); } catch {}
-        rows.forEach(r => console.log(`  ${r.from_address?.slice(0,10)}... block:${r.block_number}`)); break;
-      }
-      case "wallet": {
-        if (!rest[0]) break;
-        let rows = [];
-        try { rows = db.prepare("SELECT * FROM celo_proofs WHERE from_address = ?").all(rest[0]); } catch {}
-        console.log(`Celo proofs for ${rest[0]}: ${rows.length}`); break;
-      }
+      case "stats": { let s; try { s = getCeloStats(db); } catch { console.log("No Celo data yet."); break; } console.log(`\nCelo: ${s.total} txs · ${s.wallets} wallets`); break; }
+      case "recent": { let rows = []; try { rows = db.prepare("SELECT * FROM celo_proofs ORDER BY block_number DESC LIMIT ?").all(parseInt(rest[0])||10); } catch {} rows.forEach(r => console.log(`  ${r.from_address?.slice(0,10)}... block:${r.block_number}`)); break; }
+      case "wallet": { const addr = rest[0]; if (!addr) break; let rows = []; try { rows = db.prepare("SELECT * FROM celo_proofs WHERE from_address = ?").all(addr); } catch {} console.log(`Celo proofs for ${addr}: ${rows.length}`); break; }
     }
     break;
   }
   case "report": {
-    if (!sub) { console.error("Usage: node src/query.js report <address>"); break; }
+    const address = sub;
+    if (!address) { console.error("Usage: node src/query.js report <address>"); break; }
     const dbRw = new Database(DB_FILE);
-    const report = saveWalletReport(dbRw, sub);
+    const report = saveWalletReport(dbRw, address);
     console.log(`Stacks: ${report.stacks.totalTxs} · Celo: ${report.celo.totalTxs} · Score: ${report.score}`);
     break;
   }
   default:
-    console.log("Commands: stats|proof|wallet|recent|search|top|export|celo|report|leaderboard|timeline|anomalies|revocations|achievements");
+    console.log("Commands: stats | proof | wallet | recent | search | top | export | celo | report | leaderboard | timeline | anomalies | issuers | nfts | batch");
 }
 
 db.close();

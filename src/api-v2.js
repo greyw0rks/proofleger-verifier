@@ -1,6 +1,6 @@
 /**
- * ProofLedger Verifier API v2 — updated Apr 27
- * New: /v2/reputation/:address, /v2/leaderboard/reputation, /v2/search
+ * ProofLedger Verifier API v2 — updated Apr 30
+ * New: /v2/governance, /v2/proposals/:id, /v2/zkp/:hash, /v2/mirror/:hash, /v2/stake/:address
  */
 import http from "http";
 import Database from "better-sqlite3";
@@ -8,8 +8,12 @@ import { applyMiddleware, setCacheHeader, setNoCacheHeader } from "./middleware.
 import { proofCache, statsCache } from "./cache.js";
 import { searchProofs, getRecentByAddress } from "./search.js";
 import { getTopScores, getScore } from "./reputation-indexer.js";
-import { isDelegateAuthorized, getActiveDelegations } from "./delegation-indexer.js";
+import { getActiveDelegations } from "./delegation-indexer.js";
 import { buildLeaderboard, getTopDocTypes } from "./leaderboard.js";
+import { getProposals, getProposalVotes, getGovernanceStats } from "./governance-indexer.js";
+import { getZKPsByHash, getZKPStats } from "./zkp-indexer.js";
+import { getMirror, getMirrorStats } from "./mirror-indexer.js";
+import { getStake, getTopStakers, getStakingStats } from "./staking-indexer.js";
 import { CONFIG } from "./config.js";
 
 const PORT = CONFIG.PORT || 3001;
@@ -37,7 +41,6 @@ const server = http.createServer((req, res) => {
     const hash   = parts[2];
     const cached = proofCache.get(hash);
     if (cached) { setCacheHeader(res, 60); return json(res, cached); }
-
     const row = db.prepare("SELECT * FROM proofs WHERE hash = ? LIMIT 1").get(hash);
     let result;
     if (row) {
@@ -45,9 +48,7 @@ const server = http.createServer((req, res) => {
     } else {
       let celoRow = null;
       try { celoRow = db.prepare("SELECT * FROM celo_proofs WHERE hash = ? LIMIT 1").get(hash); } catch {}
-      result = celoRow
-        ? { found: true, chain: "celo", data: celoRow }
-        : { found: false, chain: "all" };
+      result = celoRow ? { found: true, chain: "celo", data: celoRow } : { found: false, chain: "all" };
     }
     proofCache.set(hash, result, 120_000);
     setCacheHeader(res, 60);
@@ -58,7 +59,6 @@ const server = http.createServer((req, res) => {
   if (parts[1] === "stats") {
     const cached = statsCache.get("stats");
     if (cached) { setCacheHeader(res, 30); return json(res, cached); }
-
     const s = db.prepare("SELECT * FROM stats WHERE id = 1").get();
     let celo = {};
     try {
@@ -70,6 +70,14 @@ const server = http.createServer((req, res) => {
     statsCache.set("stats", result, 30_000);
     setCacheHeader(res, 30);
     return json(res, result);
+  }
+
+  // GET /v2/recent?limit=n
+  if (parts[1] === "recent") {
+    const limit = Math.min(parseInt(url.searchParams.get("limit")) || 20, 100);
+    const rows  = db.prepare("SELECT * FROM proofs ORDER BY block_height DESC LIMIT ?").all(limit);
+    setCacheHeader(res, 15);
+    return json(res, { results: rows, total: rows.length });
   }
 
   // GET /v2/search?q=...
@@ -92,34 +100,67 @@ const server = http.createServer((req, res) => {
 
   // GET /v2/reputation/:address
   if (parts[1] === "reputation" && parts[2]) {
-    const score = getScore(db, parts[2]);
     setCacheHeader(res, 60);
-    return json(res, score || { address: parts[2], score: 0 });
+    return json(res, getScore(db, parts[2]) || { address: parts[2], score: 0 });
   }
 
-  // GET /v2/leaderboard/reputation
-  if (parts[1] === "leaderboard" && parts[2] === "reputation") {
-    const limit = parseInt(url.searchParams.get("limit")) || 10;
-    const top   = getTopScores(db, limit);
-    setCacheHeader(res, 60);
-    return json(res, { leaderboard: top });
-  }
-
-  // GET /v2/leaderboard
+  // GET /v2/leaderboard[/reputation]
   if (parts[1] === "leaderboard") {
     const limit = parseInt(url.searchParams.get("limit")) || 10;
-    const lb    = buildLeaderboard(db, limit);
-    const types = getTopDocTypes(db, 5);
+    if (parts[2] === "reputation") {
+      setCacheHeader(res, 60);
+      return json(res, { leaderboard: getTopScores(db, limit) });
+    }
+    if (parts[2] === "staking") {
+      setCacheHeader(res, 60);
+      return json(res, { leaderboard: getTopStakers(db, limit) });
+    }
     setCacheHeader(res, 60);
-    return json(res, { leaderboard: lb, topDocTypes: types });
+    return json(res, { leaderboard: buildLeaderboard(db, limit), topDocTypes: getTopDocTypes(db, 5) });
   }
 
-  // GET /v2/delegation/:delegator
+  // GET /v2/delegation/:address
   if (parts[1] === "delegation" && parts[2]) {
     const active = getActiveDelegations(db)
       .filter(d => d.delegator === parts[2] || d.delegate === parts[2]);
     setCacheHeader(res, 30);
     return json(res, { delegations: active });
+  }
+
+  // GET /v2/governance
+  if (parts[1] === "governance" && !parts[2]) {
+    const stats = getGovernanceStats(db);
+    const proposals = getProposals(db, { limit: 10 });
+    setCacheHeader(res, 30);
+    return json(res, { stats, proposals });
+  }
+
+  // GET /v2/proposals/:id/votes
+  if (parts[1] === "proposals" && parts[2] && parts[3] === "votes") {
+    const votes = getProposalVotes(db, parseInt(parts[2]));
+    setCacheHeader(res, 30);
+    return json(res, { votes, total: votes.length });
+  }
+
+  // GET /v2/zkp/:hash
+  if (parts[1] === "zkp" && parts[2]) {
+    const attestations = getZKPsByHash(db, parts[2]);
+    setCacheHeader(res, 60);
+    return json(res, { attestations, total: attestations.length });
+  }
+
+  // GET /v2/mirror/:hash
+  if (parts[1] === "mirror" && parts[2]) {
+    const mirror = getMirror(db, parts[2]);
+    setCacheHeader(res, 60);
+    return json(res, mirror || { found: false });
+  }
+
+  // GET /v2/stake/:address
+  if (parts[1] === "stake" && parts[2]) {
+    const stake = getStake(db, parts[2]);
+    setCacheHeader(res, 30);
+    return json(res, stake || { address: parts[2], active: false });
   }
 
   json(res, { error: "Not found" }, 404);

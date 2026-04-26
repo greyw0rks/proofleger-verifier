@@ -1,31 +1,33 @@
 # Changelog
 
-## [1.9.0] - 2026-04-29
+## [1.10.0] - 2026-04-30
 
 ### Added
 
 **New Modules:**
-- `src/mirror-indexer.js` — track cross-chain Stacks↔Celo proof mirrors
-- `src/staking-indexer.js` — sync active stakes and governance weights
-- `src/vault-indexer.js` — index credential-vault entries and access grants
+- `src/governance-indexer.js` — sync proposals and votes from `governance.clar`
+- `src/zkp-indexer.js` — track ZK proof attestation records
 
 **Updated:**
-- `src/scheduler.js` v1.4 — adds mirror, staking, vault, and cross-chain summary jobs;
-  all jobs run on startup then on interval
+- `src/api-v2.js` — final endpoint additions:
+  - `GET /v2/governance` — proposal stats and recent list
+  - `GET /v2/proposals/:id/votes` — per-proposal vote breakdown
+  - `GET /v2/zkp/:hash` — ZKP attestations for a credential hash
+  - `GET /v2/mirror/:hash` — cross-chain mirror status
+  - `GET /v2/stake/:address` — active staking position
+  - `GET /v2/recent?limit=n` — latest proof submissions
+  - `GET /v2/leaderboard/staking` — top stakers by weight
 
 **New DB Tables:**
-- `proof_mirrors` — cross-chain mirror records with confirmation status
-- `stakes` — active staker weights
-- `vault_entries` + `vault_grants` — encrypted credential vault state
+- `proposals` — on-chain governance proposals
+- `governance_votes` — stake-weighted votes per proposal
+- `zkp_attestations` — ZK proof verification records
+
+## [1.9.0] - 2026-04-29
+- mirror, staking, vault indexers; scheduler v1.4
 
 ## [1.8.0] - 2026-04-28
 - audit, whitelist, router indexers; query v1.5
-
-## [1.7.0] - 2026-04-27
-- reputation indexer, delegation indexer, snapshot, API v2 update
-
-## [1.6.0] - 2026-04-26
-- issuer, batch, and NFT indexers; health v1.2; query v1.4
 
 ## [1.0.0] - 2026-04-05
 - Initial release

@@ -1,32 +1,28 @@
 # Changelog
 
-## [1.12.0] - 2026-05-02
+## [1.13.0] - 2026-05-03
 
 ### Added
 
 **New Modules:**
-- `src/achievement-indexer.js` — compute and award milestone badges, 6 seeded achievements
-- `src/bridge-indexer.js` — track relay operators and cross-chain message confirmations
+- `src/attestation-indexer.js` — sync attestation-registry.clar events to `hash_attestations` table
+- `src/counter-indexer.js` — derive per-wallet counters from proofs, auto-trigger achievement awards
 
 **Updated:**
 - `src/api-v2.js` — new endpoints:
-  - `GET /v2/talent/:address` — Talent Protocol score for an address
-  - `GET /v2/talent` — top builders and stats
-  - `GET /v2/achievements/:address` — earned badges for a wallet
-  - `GET /v2/bridge` — relay operator and message stats
-  - `GET /v2/leaderboard/talent` — top builders by score
+  - `GET /v2/attestations/:hash` — third-party attestations and weight for a hash
+  - `GET /v2/timeline?days=14` — daily activity chart data
+- `src/scheduler.js` v1.5 — adds `counter-sync` (15min) and extended cross-chain summary
 
 **New DB Tables:**
-- `achievements` — milestone badge definitions (6 seeded on init)
-- `user_achievements` — per-wallet earned badges
-- `relay_operators` — registered bridge operators
-- `relay_messages` — cross-chain relay message history
+- `hash_attestations` — per-hash third-party attestation records
+- `wallet_counters` — per-wallet anchor/attest totals derived from proofs
+
+## [1.12.0] - 2026-05-02
+- achievement, bridge indexers; API v2 talent/achievements/bridge
 
 ## [1.11.0] - 2026-05-01
 - talent, SDK indexers; query v1.6
-
-## [1.10.0] - 2026-04-30
-- governance, ZKP indexers; API v2 final endpoints
 
 ## [1.0.0] - 2026-04-05
 - Initial release

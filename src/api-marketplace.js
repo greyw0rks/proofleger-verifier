@@ -1,0 +1,11 @@
+import express from "express";
+import { getActiveListings, getListingPurchases } from "./marketplace-indexer.js";
+import { getReferralStats, getReferralLeaderboard } from "./referral-indexer.js";
+import { getStampsForHash } from "./stamp-indexer.js";
+const router = express.Router();
+router.get("/marketplace/listings", (_req, res) => res.json({ listings: getActiveListings() }));
+router.get("/marketplace/listings/:id/purchases", (req, res) => res.json({ purchases: getListingPurchases(Number(req.params.id)) }));
+router.get("/referrals/:address", (req, res) => res.json(getReferralStats(req.params.address)));
+router.get("/referrals/leaderboard", (req, res) => res.json({ leaderboard: getReferralLeaderboard(Math.min(Number(req.query.limit??10),50)) }));
+router.get("/stamps/:hash", (req, res) => res.json({ stamps: getStampsForHash(req.params.hash) }));
+export default router;

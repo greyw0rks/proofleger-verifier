@@ -1,4 +1,4 @@
-// generated: may10  api: api-anchor-v3
+// generated: may11  api: api-anchor-v3
 import express from 'express';
 const router = express.Router();
 router.get('/anchor-v3', (_req, res) => {
@@ -10,6 +10,6 @@ router.get('/anchor-v3/:id', (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.get('/anchor-v3/stats', (_req, res) => {
-  res.json({ stats: {}, module: 'api-anchor-v3', tag: 'may10' });
+  res.json({ stats: {}, module: 'api-anchor-v3', tag: 'may11' });
 });
 export default router;

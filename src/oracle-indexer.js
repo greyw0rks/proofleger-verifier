@@ -1,15 +1,16 @@
 import db from "./database.js";
 import { fetchContractEvents } from "./indexer.js";
 const CONTRACT = process.env.STACKS_CONTRACT;
-db.exec(`CREATE TABLE IF NOT EXISTS oracle_prices (asset TEXT PRIMARY KEY, price INTEGER, sources INTEGER, updated_at INTEGER);
-CREATE TABLE IF NOT EXISTS oracle_submissions (asset TEXT, feeder TEXT, price INTEGER, block_height INTEGER, PRIMARY KEY(asset,feeder,block_height));`);
+db.exec(`CREATE TABLE IF NOT EXISTS oracle (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_hash TEXT UNIQUE, owner TEXT, value TEXT, block_height INTEGER, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
+const upsert = db.prepare(`INSERT OR IGNORE INTO oracle (entry_hash,owner,value,block_height) VALUES (@entry_hash,@owner,@value,@block_height)`);
 export async function syncOracle(fromBlock=0) {
-  const evs = await fetchContractEvents(`${CONTRACT}.oracle-v2`,fromBlock); let count=0;
+  const evs = await fetchContractEvents(CONTRACT + '.oracle', fromBlock);
+  let count = 0;
   for (const ev of evs) {
-    if (ev.name==="price-aggregated") { db.prepare("INSERT OR REPLACE INTO oracle_prices (asset,price,sources,updated_at) VALUES (?,?,?,?)").run(ev.value.asset,Number(ev.value.price),Number(ev.value.sources??1),ev.block_height); count++; }
-    else if (ev.name==="price-submitted") { db.prepare("INSERT OR IGNORE INTO oracle_submissions (asset,feeder,price,block_height) VALUES (?,?,?,?)").run(ev.value.asset,ev.value.feeder,Number(ev.value.price),ev.block_height); count++; }
+    if (ev.name === 'entry-added') { upsert({ entry_hash: ev.tx_id, owner: ev.value.owner ?? '', value: JSON.stringify(ev.value), block_height: ev.block_height }); count++; }
+    else if (ev.name === 'entry-deactivated') { db.prepare('UPDATE oracle SET active=0 WHERE owner=?').run(ev.value.owner); count++; }
   }
   return count;
 }
-export const getLatestPrice = (asset) => db.prepare("SELECT * FROM oracle_prices WHERE asset=?").get(asset);
-export const getAllPrices = () => db.prepare("SELECT * FROM oracle_prices ORDER BY asset").all();
+export const getOracleEntries = (lim=50) => db.prepare('SELECT * FROM oracle WHERE active=1 ORDER BY block_height DESC LIMIT ?').all(lim);
+export const getOracleStats = () => db.prepare('SELECT COUNT(*) as total FROM oracle').get();

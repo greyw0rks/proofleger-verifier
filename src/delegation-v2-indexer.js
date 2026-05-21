@@ -1,15 +1,16 @@
 import db from "./database.js";
 import { fetchContractEvents } from "./indexer.js";
 const CONTRACT = process.env.STACKS_CONTRACT;
-db.exec(`CREATE TABLE IF NOT EXISTS vote_delegations (delegator TEXT PRIMARY KEY, delegate TEXT, power INTEGER, expires_at INTEGER, scope TEXT, active INTEGER DEFAULT 1, created_at INTEGER);`);
-const upsert = db.prepare(`INSERT OR REPLACE INTO vote_delegations (delegator,delegate,power,expires_at,scope,active,created_at) VALUES (@delegator,@delegate,@power,@expires_at,@scope,1,@created_at)`);
+db.exec(`CREATE TABLE IF NOT EXISTS delegation_v2 (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_hash TEXT UNIQUE, owner TEXT, value TEXT, block_height INTEGER, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
+const upsert = db.prepare(`INSERT OR IGNORE INTO delegation_v2 (entry_hash,owner,value,block_height) VALUES (@entry_hash,@owner,@value,@block_height)`);
 export async function syncDelegationV2(fromBlock=0) {
-  const evs = await fetchContractEvents(`${CONTRACT}.vote-delegation`,fromBlock); let count=0;
+  const evs = await fetchContractEvents(CONTRACT + '.delegation-v2', fromBlock);
+  let count = 0;
   for (const ev of evs) {
-    if (ev.name==="vote-delegated") { upsert({delegator:ev.value.delegator,delegate:ev.value.delegate,power:Number(ev.value.power??1),expires_at:Number(ev.value["expires-at"]??0),scope:ev.value.scope??"all",created_at:ev.block_height}); count++; }
-    else if (ev.name==="delegation-revoked") { db.prepare("UPDATE vote_delegations SET active=0 WHERE delegator=?").run(ev.value.delegator); count++; }
+    if (ev.name === 'entry-added') { upsert({ entry_hash: ev.tx_id, owner: ev.value.owner ?? '', value: JSON.stringify(ev.value), block_height: ev.block_height }); count++; }
+    else if (ev.name === 'entry-deactivated') { db.prepare('UPDATE delegation_v2 SET active=0 WHERE owner=?').run(ev.value.owner); count++; }
   }
   return count;
 }
-export const getDelegation = (addr) => db.prepare("SELECT * FROM vote_delegations WHERE delegator=? AND active=1").get(addr);
-export const getDelegatePower = (addr) => db.prepare("SELECT SUM(power) as total FROM vote_delegations WHERE delegate=? AND active=1").get(addr)?.total??0;
+export const getDelegationV2Entries = (lim=50) => db.prepare('SELECT * FROM delegation_v2 WHERE active=1 ORDER BY block_height DESC LIMIT ?').all(lim);
+export const getDelegationV2Stats = () => db.prepare('SELECT COUNT(*) as total FROM delegation_v2').get();

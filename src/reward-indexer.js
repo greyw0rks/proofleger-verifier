@@ -1,12 +1,16 @@
 import db from "./database.js";
 import { fetchContractEvents } from "./indexer.js";
 const CONTRACT = process.env.STACKS_CONTRACT;
-db.exec(`CREATE TABLE IF NOT EXISTS referral_rewards (address TEXT PRIMARY KEY, amount INTEGER, claimed_at INTEGER);`);
-const insert = db.prepare(`INSERT OR IGNORE INTO referral_rewards (address,amount,claimed_at) VALUES (@address,@amount,@claimed_at)`);
-export async function syncRewards(fromBlock=0) {
-  const evs = await fetchContractEvents(`${CONTRACT}.referral-reward`,fromBlock); let count=0;
-  for (const ev of evs) { if (ev.name==="rewards-claimed") { insert({address:ev.value.claimant,amount:Number(ev.value.amount),claimed_at:ev.block_height}); count++; } }
+db.exec(`CREATE TABLE IF NOT EXISTS reward (id INTEGER PRIMARY KEY AUTOINCREMENT, entry_hash TEXT UNIQUE, owner TEXT, value TEXT, block_height INTEGER, active INTEGER DEFAULT 1, created_at TEXT DEFAULT CURRENT_TIMESTAMP);`);
+const upsert = db.prepare(`INSERT OR IGNORE INTO reward (entry_hash,owner,value,block_height) VALUES (@entry_hash,@owner,@value,@block_height)`);
+export async function syncReward(fromBlock=0) {
+  const evs = await fetchContractEvents(CONTRACT + '.reward', fromBlock);
+  let count = 0;
+  for (const ev of evs) {
+    if (ev.name === 'entry-added') { upsert({ entry_hash: ev.tx_id, owner: ev.value.owner ?? '', value: JSON.stringify(ev.value), block_height: ev.block_height }); count++; }
+    else if (ev.name === 'entry-deactivated') { db.prepare('UPDATE reward SET active=0 WHERE owner=?').run(ev.value.owner); count++; }
+  }
   return count;
 }
-export const getRewardStats = () => { const r=db.prepare("SELECT COUNT(*) as claimants, SUM(amount) as total FROM referral_rewards").get(); return {total_claimants:r.claimants,total_distributed:r.total??0}; };
-export const getClaimInfo = (addr) => db.prepare("SELECT * FROM referral_rewards WHERE address=?").get(addr);
+export const getRewardEntries = (lim=50) => db.prepare('SELECT * FROM reward WHERE active=1 ORDER BY block_height DESC LIMIT ?').all(lim);
+export const getRewardStats = () => db.prepare('SELECT COUNT(*) as total FROM reward').get();

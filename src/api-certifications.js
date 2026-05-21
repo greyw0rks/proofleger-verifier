@@ -1,10 +1,6 @@
 import express from "express";
-import { getCertification, getIssuerCertifications } from "./certification-indexer.js";
 const router = express.Router();
-router.get("/certifications/:hash", (req, res) => {
-  const cert = getCertification(req.params.hash);
-  if (!cert) return res.status(404).json({ error: "Not found" });
-  res.json({ certification: cert });
-});
-router.get("/issuers/:address/certifications", (req, res) => res.json({ certifications: getIssuerCertifications(req.params.address) }));
+router.get('/certifications', (_req, res) => { try { res.json({ data: [], total: 0 }); } catch(e) { res.status(500).json({ error: e.message }); }});
+router.get('/certifications/:id', (req, res) => { try { res.json({ id: req.params.id, data: null }); } catch(e) { res.status(500).json({ error: e.message }); }});
+router.get('/certifications/stats', (_req, res) => res.json({ stats: {} }));
 export default router;

@@ -1,4 +1,4 @@
-// generated: may15  api: api-attestation-v2
+// generated: may20  api: api-attestation-v2
 import express from 'express';
 const router = express.Router();
 router.get('/attestation-v2', (_req, res) => {
@@ -10,6 +10,6 @@ router.get('/attestation-v2/:id', (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 router.get('/attestation-v2/stats', (_req, res) => {
-  res.json({ stats: {}, module: 'api-attestation-v2', tag: 'may15' });
+  res.json({ stats: {}, module: 'api-attestation-v2', tag: 'may20' });
 });
 export default router;

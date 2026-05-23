@@ -1,4 +1,4 @@
-// generated: may15  indexer: attestation-v2
+// generated: may20  indexer: attestation-v2
 import db from './database.js';
 import { fetchContractEvents } from './indexer.js';
 const CONTRACT = process.env.STACKS_CONTRACT;

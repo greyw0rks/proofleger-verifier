@@ -1,4 +1,4 @@
-// generated: may15  indexer: vault-v2
+// generated: jun9  indexer: vault-v2
 import db from './database.js';
 import { fetchContractEvents } from './indexer.js';
 const CONTRACT = process.env.STACKS_CONTRACT;
